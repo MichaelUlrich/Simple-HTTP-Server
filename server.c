@@ -12,29 +12,8 @@ enum{FALSE, TRUE};
 //http://localhost:37864/index.html 				- sample URL
 //Multi-thread responses 	-> new request new thread 	- Still need 4/17
 #define MSG_BUFFER 99999 
-void messageParse(char msg, int client) {
-	/* html or htm extension*/
-	char * chtml="Content-Type: text/html\r\n"; 
-	/* css extension */ 
-	char * ccss="Content-Type: text/css\r\n"; 
-	/* jpg extension */ 
-	char * cjpg="Content-Type: image/jpeg\r\n"; 
-	/* png extension */ 
-	char * cpng="Content-Type: image/png\r\n"; 
-	/* gif extension */ 
-	char * cgif="Content-Type: image/gif\r\n"; 
-	/* Any other extensions */ 
-	char * cplain="Content-Type: text/plain\r\n"; 
-	
-	if(strcasecmp(msg, "POST") == TRUE) {
-                unimplementedError(client);
-                return;
-        }
-	//Defualt Case
-	//Specific Path
 
-}
-void unimplementedError(int client){ //501 Error - Bad URL/file
+void badError(int client){ //501 Error - Bad URL/file
 
 	char buf[1024];
 	sprintf(buf, "HTTP/1.0 501 Method Not Implemented\r\n");
@@ -82,19 +61,56 @@ void objectFound(int client) { 	//200 Response
 	//	   -> "GET /file.html" 	= Open this file
 	
 }
+char * messageParse(char * msg, int client) {
+	/* html or htm extension*/
+	//char * chtml="Content-Type: text/html\r\n"; 
+	/* css extension */ 
+	//char * ccss="Content-Type: text/css\r\n"; 
+	/* jpg extension */ 
+	//char * cjpg="Content-Type: image/jpeg\r\n"; 
+	/* png extension */ 
+	//char * cpng="Content-Type: image/png\r\n"; 
+	/* gif extension */ 
+	//char * cgif="Content-Type: image/gif\r\n"; 
+	/* Any other extensions */ 
+	//char * cplain="Content-Type: text/plain\r\n"; 
+	int i = 0;
+	//printf("%s\n", msg); //Display GET request
+	char * temp = strtok(msg, "\r\n"), * token = malloc(sizeof(msg)); //token = GET / HTTP/1.1
+	char **tokenArray = NULL;
+
+	strcpy(token, temp);
+
+	token = strtok(token, " ");
+
+	while(temp) {
+		
+		tokenArray = realloc(tokenArray, sizeof(char*) * ++i);
+		tokenArray[i] = token;
+
+		if(tokenArray[i] == "POST") {
+			badError(client);
+			return 0; //Returns error, server will close
+		}
+		//printf("%i) %s\n", i, tokenArray[i]); Debug
+		token = strtok(NULL, " ");
+		if(i == 2) { //Position of file name & path
+			return tokenArray[i];
+		}	
+	}
+}
 int main(int argc, char **argv) {
 
 	int port = 0, sockFd = 0, recvd, connFd, sinSize = sizeof(struct sockaddr_in);
 	struct sockaddr_in myAddr, clientAddr;
-	char *msg = malloc(MSG_BUFFER);
+	char *msg = malloc(MSG_BUFFER), *fileName, *cwd = malloc(MSG_BUFFER);
 
 	if(argc <= 1) { 							//Exit if no arguments
 		printf("NO PORT ENTERED. EXITING...\n");
 		exit(EXIT_FAILURE);
 	} else if (argc == 2) { 						//Convert port value from string to int
 		port = atoi(argv[1]); 						//char to int conversion
-		printf("Port: %i\n", port);
-	
+		printf("Port: %i\n", port);	
 	} else if (argc >= 3) { 						//Exit if too many arguments
 		printf("TOO MANY ARGUMENTS ENTERED. EXITING...\n");
 		exit(EXIT_FAILURE);
@@ -123,17 +139,28 @@ int main(int argc, char **argv) {
 		printf("Connected to [IP/PORT]: [%s / %d]\n", inet_ntoa(clientAddr.sin_addr), ntohs(clientAddr.sin_port));
 		memset(msg, 0, MSG_BUFFER);
 		read(connFd, msg, MSG_BUFFER - 1);
-		printf("%s\n", msg); 						//Print GET request for debug
-		messageParse(msg, connFd);					//Parse GET request for 
-	
+		if(getcwd(cwd, MSG_BUFFER) == 0) {
+			perror("Error getting directory\n");
+			exit(EXIT_FAILURE);
+		} else {
+		//	printf("got cwd: %s\n", cwd); Debug
+		}
+		fileName = messageParse(msg, connFd);				//Parse GET request for path & file name
+		if(fileName == 0) {
+			printf("Error getting filename from GET\n");
+			return EXIT_FAILURE;
+		} else { 	
+			//printf("File name: ");
+			//printf("%s\n", fileName); Debug
+		}	
+		printf("%s\n", fileName);
+		printf("%s\n", cwd);
 	//	unimplementedError(connFd); 					//501 Error
 	//	notFoundError(connFd);						//404 Error
 	//	objectFound(connFd);						//202 Response
 		printf("Closing....\n");
 		close(connFd);
-		exit(EXIT_SUCCESS);
-					
-	}
-
+		exit(EXIT_SUCCESS);			
+	}	
 	return EXIT_SUCCESS;
 }
