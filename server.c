@@ -4,13 +4,13 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <netinet/in.h>
-#include <arpa/inet.h> //inet_ntoa()
+#include <arpa/inet.h> 	//inet_ntoa()
+#include <regex.h>	//regcomp(), regexec()
 enum{FALSE, TRUE};
-//User enters port						- Done
-//HTTP request 							- Done
-//Read html, displays in Chrome 				- Error's complete
+
 //http://localhost:37864/index.html 				- sample URL
 //Multi-thread responses 	-> new request new thread 	- Still need 4/17
+//Issue displaying images, text is ok				- 4/23
 #define MSG_BUFFER 99999 
 
 void badError(int client){ //501 Error - Bad URL/file
@@ -54,56 +54,87 @@ void notFoundError(int client) { //404 Error
         send(client, buf, strlen(buf), 0);
 
 }
-void objectFound(int client) { 	//200 Response
-				//Display
-	//Parse through GET Request
-	//Get file -> "GET /" 		= Default Index
-	//	   -> "GET /file.html" 	= Open this file
+void objectFound(int client, char * path) { 	//200 Response
+				
+	char buf[1024], *lineBuf;
+	FILE *fd;
+	size_t len = 0;
+	ssize_t read;
+	sprintf(buf, "HTTP/1.0 200 OK\r\n");
+	send(client, buf, strlen(buf), 0);
 	
+	if(strstr(path, "html") != NULL)  { 	//.html extension
+		sprintf(buf, "Content-Type: text/html\r\n");
+        	send(client, buf, strlen(buf), 0);
+	} else if(strstr(path, "css") != NULL) { //.css extension
+		sprintf(buf, "Content-Type: text/css\r\n");
+                send(client, buf, strlen(buf), 0);
+	} else if(strstr(path, "jpg") != NULL) {//.jpg extension
+		sprintf(buf, "Content-Type: image/jpg\r\n");
+                send(client, buf, strlen(buf), 0);
+	} else if(strstr(path, "png") != NULL) {//.png extension
+		sprintf(buf, "Content-Type: image/png\r\n");
+                send(client, buf, strlen(buf), 0);
+	} else if(strstr(path, "gif") != NULL) {//.gif extension
+		sprintf(buf, "Content-Type: image/gif\r\n");
+                send(client, buf, strlen(buf), 0);
+	} else {				//All other extensions
+		sprintf(buf, "Content-Type: text/plain\r\n");
+                send(client, buf, strlen(buf), 0);
+	} 
+	sprintf(buf, "\r\n");
+        send(client, buf, strlen(buf), 0);
+	
+	fd = fopen(path, "r");
+	if(fd == NULL) {
+		notFoundError(client); 		//404 Error
+		return;
+	}
+	printf("\n"); //debug
+	while((read = getline(&lineBuf, &len, fd)) != -1) {
+		printf("%s", lineBuf); //debug
+		sprintf(buf, lineBuf); //Issues displaying photos 4/23
+		send(client, buf, strlen(buf), 0);
+
+//		send(client, lineBuf, len, 0);
+	}
+//	send(client, fd, sizeof(fd), 0);	
+
 }
 char * messageParse(char * msg, int client) {
-	/* html or htm extension*/
-	//char * chtml="Content-Type: text/html\r\n"; 
-	/* css extension */ 
-	//char * ccss="Content-Type: text/css\r\n"; 
-	/* jpg extension */ 
-	//char * cjpg="Content-Type: image/jpeg\r\n"; 
-	/* png extension */ 
-	//char * cpng="Content-Type: image/png\r\n"; 
-	/* gif extension */ 
-	//char * cgif="Content-Type: image/gif\r\n"; 
-	/* Any other extensions */ 
-	//char * cplain="Content-Type: text/plain\r\n"; 
+	
 	int i = 0;
 	//printf("%s\n", msg); //Display GET request
 	char * temp = strtok(msg, "\r\n"), * token = malloc(sizeof(msg)); //token = GET / HTTP/1.1
-	char **tokenArray = NULL;
+	char **tokenArray = malloc(MSG_BUFFER);
 
 	strcpy(token, temp);
 
 	token = strtok(token, " ");
-
-	while(temp) {
+//	printf("%s\n", msg);
+		while(temp) {
 		
-		tokenArray = realloc(tokenArray, sizeof(char*) * ++i);
+		//tokeniArray = realloc(tokenArray, sizeof(char*) * ++i);
 		tokenArray[i] = token;
 
 		if(tokenArray[i] == "POST") {
 			badError(client);
-			return 0; //Returns error, server will close
+			return 0; 					//Returns error, server will close
 		}
-		//printf("%i) %s\n", i, tokenArray[i]); Debug
+//		printf("%i) %s\n", i, tokenArray[i]); //Debug
 		token = strtok(NULL, " ");
-		if(i == 2) { //Position of file name & path
+		if(i == 1) { 						//Position of file name & path
 			return tokenArray[i];
-		}	
+		}
+		i++;	
 	}
 }
 int main(int argc, char **argv) {
 
 	int port = 0, sockFd = 0, recvd, connFd, sinSize = sizeof(struct sockaddr_in);
 	struct sockaddr_in myAddr, clientAddr;
-	char *msg = malloc(MSG_BUFFER), *fileName, *cwd = malloc(MSG_BUFFER);
+	char *msg = malloc(MSG_BUFFER), *fileName, *cwd = malloc(MSG_BUFFER), *path = malloc(MSG_BUFFER);
+	regex_t regExp;
 
 	if(argc <= 1) { 							//Exit if no arguments
 		printf("NO PORT ENTERED. EXITING...\n");
@@ -131,6 +162,10 @@ int main(int argc, char **argv) {
 	
 	listen(sockFd, 10);							//Listen on socket, time out after 10 attempts
 	
+	//Create new thread
+	//If found 				-> Return with 200 OK response
+	//else if invalid (Regular Exp.) 	-> Return with 501 Error - done
+	//Else if not found 			-> Return with 404 Error - 99.9% done	
 	while(TRUE) {
 		if((connFd = accept(sockFd, (struct sockaddr*) &clientAddr, &sinSize)) == -1) {
 			perror("Error accepting connection\n");
@@ -143,21 +178,44 @@ int main(int argc, char **argv) {
 			perror("Error getting directory\n");
 			exit(EXIT_FAILURE);
 		} else {
-		//	printf("got cwd: %s\n", cwd); Debug
+			printf("got cwd: %s\n", cwd); //Debug
 		}
 		fileName = messageParse(msg, connFd);				//Parse GET request for path & file name
+	
+		if((strcmp(fileName,"/")) == 0) {
+			printf("Default path\n");
+			fileName = "/index.html";
+		}
+	
+		strcpy(path, cwd);
+		strcat(path, "/web");
+		strcat(path, fileName);						//Combine working directory and path for regular expression check
+
 		if(fileName == 0) {
 			printf("Error getting filename from GET\n");
 			return EXIT_FAILURE;
 		} else { 	
-			//printf("File name: ");
+			printf("File name: ");
 			//printf("%s\n", fileName); Debug
-		}	
-		printf("%s\n", fileName);
-		printf("%s\n", cwd);
-	//	unimplementedError(connFd); 					//501 Error
-	//	notFoundError(connFd);						//404 Error
-	//	objectFound(connFd);						//202 Response
+		}
+		if(regcomp(&regExp, "/[[a-zA-Z_0-9]]*.+(html|css|jpeg|png|gif))", 0)) { //Create regular expresion to compare to
+			printf("regcomp error\n");
+			exit(1);
+		}
+//		if(!(regexec(&regExp, fileName, 0, NULL, 0))) { //regexec() returns 0 if true
+//			printf("%s is a vaild name\n", fileName);
+	
+			objectFound(connFd, path);
+
+
+
+
+			
+//		} else {
+//			printf("%s is NOT a valid name\n", fileName);
+//			badError(connFd);
+//		}
+		printf("PATH: %s\n", path);
 		printf("Closing....\n");
 		close(connFd);
 		exit(EXIT_SUCCESS);			
